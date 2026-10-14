@@ -1,0 +1,63 @@
+name: SHAKER PDF — Windows build
+
+# Builds the Windows installer (.msi) and a portable .zip.
+# - Every push to main: the files appear under the run's "Artifacts".
+# - A tag like v1.0.0: the files are also attached to a GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shaker-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      CRAFT_FONTS_DIR: ${{ github.workspace }}\shaker-fonts
+      CRAFT_FONTS_REQUIRED: "1"
+      DIST: ${{ github.workspace }}\dist\release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: shaker-windows
+
+      - name: WiX
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: Build and package
+        shell: pwsh
+        run: pwsh packaging/windows/package.ps1 -Arch x64
+
+      - name: Rename files
+        shell: pwsh
+        run: |
+          Get-ChildItem $env:DIST -File | ForEach-Object {
+            Rename-Item $_.FullName ($_.Name -replace '^pdfcraft-', 'SHAKER-PDF-')
+          }
+          Get-ChildItem $env:DIST
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SHAKER-PDF-windows
+          path: dist/release/*
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/release/*
